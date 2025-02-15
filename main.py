@@ -110,16 +110,37 @@ async def root():
     </html>
     """
 
-@app.get("/get_advice", tags=["Advice"])
+@app.get("/get_advice", response_class=HTMLResponse, tags=["Advice"])
 async def get_advice(consumption: float, people: int):
-    """Endpoint que recibe el consumo y el número de personas y devuelve recomendaciones personalizadas."""
-    
     if consumption <= 0 or people <= 0:
         raise HTTPException(status_code=400, detail="Los valores deben ser mayores que 0")
-    
+
     recommendations = get_recommendations(consumption, people)
-    
-    return JSONResponse(content={
-        "message": f"Análisis de consumo para {people} personas con {consumption} kWh",
-        "recommendations": recommendations
-    })
+
+    # Construcción de la respuesta HTML
+    html_content = f"""
+    <html>
+        <head>
+            <title>Recomendaciones de Consumo Energético</title>
+        </head>
+        <body>
+            <h1>Resultados del Análisis</h1>
+            <p>Consumo mensual: {consumption} kWh</p>
+            <p>Número de personas: {people}</p>
+            <h2>Nivel de Consumo: {recommendations["consumption_level"].capitalize()}</h2>
+            <h3>Recomendaciones Generales:</h3>
+            <ul>
+                {''.join(f"<li>{rec}</li>" for rec in recommendations["general"])}
+            </ul>
+            <h3>Recomendaciones Específicas:</h3>
+            <ul>
+                {''.join(f"<li>{rec}</li>" for rec in recommendations["specific"])}
+            </ul>
+            <p><strong>Consumo Promedio:</strong> {recommendations["statistics"]["avg_consumption_per_person"]}</p>
+            <p><strong>Desviación Estándar:</strong> {recommendations["statistics"]["std_consumption_per_person"]}</p>
+            <br>
+            <a href="/">Volver al inicio</a>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
