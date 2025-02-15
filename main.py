@@ -136,8 +136,6 @@ async def get_advice(consumption: float, people: int):
             <ul>
                 {''.join(f"<li>{rec}</li>" for rec in recommendations["specific"])}
             </ul>
-            <p><strong>Consumo Promedio:</strong> {recommendations["statistics"]["avg_consumption_per_person"]}</p>
-            <p><strong>Desviación Estándar:</strong> {recommendations["statistics"]["std_consumption_per_person"]}</p>
             <br>
             <a href="/">Volver al inicio</a>
         </body>
