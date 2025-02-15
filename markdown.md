@@ -3,3 +3,8 @@
 Héctor Morales Gañan  
 Juan Sebastian Ortiz  
 Miguel Angel  
+
+## Comando para correr el proyecto
+
+```bash
+uvicorn main:app --reload
