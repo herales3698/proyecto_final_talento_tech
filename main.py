@@ -5,11 +5,7 @@ import nltk
 import statistics
 from typing import Dict, Tuple
 
-# ----------------------------
-# Configuración y carga de datos
-# ----------------------------
-
-# Configurar NLTK: se añade la ruta y se descargan los recursos necesarios
+# Configuración y carga de datos (sin cambios)
 nltk.data.path.append('C:\\Users\\hemor\\AppData\\Roaming\\nltk_data')
 nltk.download('punkt')
 nltk.download('wordnet')
@@ -20,10 +16,9 @@ def load_data():
     Se seleccionan las columnas relevantes y se normalizan los nombres.
     """
     data = pd.read_csv('Dataset/dataset_consumo_energia_balanceado.csv')[['Año', 'Mes', 'Personas', 'Consumo']]
-    data.columns = ['Year', 'Month', 'People', 'Consumption']  # Normalizar nombres de columnas
-    return data.fillna('').to_dict(orient='records')  # Devolver lista de diccionarios
+    data.columns = ['Year', 'Month', 'People', 'Consumption']
+    return data.fillna('').to_dict(orient='records')
 
-# Cargar datos de consumo energético
 energy_data = load_data()
 
 def get_consumption_level(consumption_per_person: float):
@@ -33,55 +28,64 @@ def get_consumption_level(consumption_per_person: float):
     """
     consumptions_per_person = [record['Consumption'] / record['People'] 
                                for record in energy_data if record['People'] > 0]
-    
     avg_consumption = statistics.mean(consumptions_per_person)
     std_consumption = statistics.stdev(consumptions_per_person)
-    
     if consumption_per_person > (avg_consumption + std_consumption):
-        level = "high"
+        level = "alto"
     elif consumption_per_person < (avg_consumption - std_consumption):
-        level = "low"
+        level = "bajo"
     else:
-        level = "medium"
-    
+        level = "normal"
     return level, avg_consumption, std_consumption
 
-def get_recommendations(consumption: float, people: int) -> Dict[str, list]:
+def get_recommendations(consumption: float, people: int, price_per_kwh: float) -> Dict[str, list]:
     """
     Genera recomendaciones personalizadas basadas en el consumo y el número de personas.
-    Retorna tanto recomendaciones generales como específicas según el nivel de consumo.
+    Retorna tanto recomendaciones generales como específicas según el nivel de consumo y a su vez para todos menos para el nivel bajo muestra el ahorro.
+    - Para 'alto': calcula el ahorro si se reduce al umbral máximo de 'moderado'.
+    - Para 'normal': calcula el ahorro si se reduce al umbral mínimo de 'moderado'.
     """
     consumption_per_person = consumption / people
     consumption_level, avg_consumption, std_consumption = get_consumption_level(consumption_per_person)
-    
     general_recommendations = [
         "Apaga las luces cuando no estés en la habitación",
         "Utiliza bombillas LED de bajo consumo",
         "Desconecta los aparatos electrónicos cuando no los uses",
         "Aprovecha la luz natural durante el día"
     ]
-    
     specific_recommendations = {
-        "high": [
-            "Tu consumo es alto. Considera estas acciones adicionales:",
+        "alto": [
             "Revisa el aislamiento de tu hogar",
             "Programa el termostato a temperaturas más eficientes",
             f"El consumo por persona es {consumption_per_person:.2f} kWh, intenta reducirlo",
             "Realiza una auditoría energética de tu hogar"
         ],
-        "medium": [
-            "Tu consumo es moderado. Puedes mejorarlo con estas acciones:",
+        "normal": [
             "Usa electrodomésticos en horas valle",
             "Instala temporizadores en equipos de alto consumo",
             f"El consumo por persona es {consumption_per_person:.2f} kWh"
         ],
-        "low": [
-            "¡Excelente! Tu consumo es bajo. Para mantenerlo:",
+        "bajo": [
             "Continúa con tus buenos hábitos de consumo",
             "Considera instalar paneles solares para ser aún más eficiente",
             f"El consumo por persona es {consumption_per_person:.2f} kWh"
         ]
     }
+    if consumption_level != "bajo":
+        excess_per_person = 0
+        if consumption_level == "alto":
+            umbral = avg_consumption + std_consumption
+        elif consumption_level == "normal":
+            umbral = avg_consumption - std_consumption
+        excess_per_person = consumption_per_person - umbral
+        if excess_per_person > 0:
+            kwh_excess = excess_per_person * people
+            money_saved = kwh_excess * price_per_kwh
+            if consumption_level == "alto":
+                note = f"Siguiendo estas recomendaciones, podrías ahorrar {kwh_excess:.2f} kWh, equivalente a ${money_saved:.2f} al mes (basado en ${price_per_kwh}/kWh)."
+            elif consumption_level == "normal":
+                note = f"Tu consumo está bien, pero si quieres mejorar aún más, siguiendo estas recomendaciones podrías ahorrar {kwh_excess:.2f} kWh, unos ${money_saved:.2f} al mes (basado en ${price_per_kwh}/kWh)."
+            specific_recommendations[consumption_level].append(note)
     
     return {
         "general": general_recommendations,
@@ -105,20 +109,12 @@ def get_additional_recommendations(details: str) -> list:
         "Asegúrate de que las ventanas estén bien aisladas",
         "Evalúa la posibilidad de instalar sistemas de energía renovable, como paneles solares"
     ]
-    
-    # Personalización simple según palabras clave en los detalles
     if "calefacción" in details.lower():
         extra_recommendations.append("Optimiza el uso de la calefacción, ajusta el termostato y revisa el sistema regularmente.")
     if "iluminación" in details.lower():
         extra_recommendations.append("Considera instalar sensores de movimiento y temporizadores para la iluminación.")
     if "electrodomésticos" in details.lower():
         extra_recommendations.append("Revisa la eficiencia energética de tus electrodomésticos y reemplázalos por modelos más eficientes si es posible.")
-    if "computador" in details.lower():
-        extra_recommendations.append("Revisa la eficiencia energética de tus equipos de computación y reemplázalos por modelos más eficientes si es posible.")
-    if "aire acondicionado" in details.lower():
-        extra_recommendations.append("Optimiza el uso del aire acondicionado, ajusta el termostato y revisa el sistema regularmente.")
-    if "luces" in details.lower():
-        extra_recommendations.append("Revisa la eficiencia energética de tus luces y reemplázalas por modelos más eficientes si es posible.")
     return extra_recommendations
 
 # ----------------------------
@@ -134,46 +130,63 @@ def process_message(state: dict, message: str) -> Tuple[dict, str]:
       - step 0: Espera el nombre.
       - step 1: Espera el número de personas en el hogar.
       - step 2: Espera el consumo mensual en kWh.
-      - step 3: Muestra recomendaciones y pregunta si se desean más detalles.
-      - step 4: Procesa detalles adicionales y ofrece recomendaciones extra.
+      - step 3: Espera el costo por kWh.
+      - step 4: Muestra recomendaciones y pregunta si se desean más detalles.
+      - step 5: Espera la respuesta sobre detalles adicionales.
+      - step 6: Muestra recomendaciones adicionales y finaliza la conversación.
     """
+    
     step = state.get("step", 0)
     reply = ""
     
     if step == 0:
-        # Guardar el nombre y avanzar al siguiente paso
-        state["name"] = message.strip()
-        state["step"] = 1
-        reply = f"Encantado, {state['name']}. ¿Cuántas personas hay en tu hogar?"
+        if message.strip().lower() in ["hola", "hi", "holi"]:
+            state["step"] = 1
+            reply = "¡Hola! ¿Cuál es tu nombre?"
+        else:
+            reply = "Di 'hola' para comenzar la conversación."
     
     elif step == 1:
-        # Validar e interpretar el número de personas
+        state["name"] = message.strip()
+        state["step"] = 2
+        reply = f"Encantado, {state['name']}. ¿Cuántas personas hay en tu hogar?"
+    
+    elif step == 2:
         try:
             people = int(message)
             if people <= 0:
                 reply = "Por favor, ingresa un número válido de personas (mayor que 0)."
             else:
                 state["people"] = people
-                state["step"] = 2
+                state["step"] = 3
                 reply = "Perfecto. ¿Cuál es el consumo mensual en kWh?"
         except ValueError:
             reply = "Por favor, ingresa un número válido para el número de personas."
     
-    elif step == 2:
-        # Validar e interpretar el consumo
+    elif step == 3:
         try:
             consumption = float(message)
             if consumption <= 0:
                 reply = "El consumo debe ser mayor que 0. Inténtalo de nuevo."
             else:
                 state["consumption"] = consumption
-                state["step"] = 3
-                # Generar recomendaciones basadas en los datos
-                recs = get_recommendations(consumption, state["people"])
-                # Construir mensaje con resumen y recomendaciones
+                state["step"] = 4
+                reply = "¿Cuál es el costo por kWh en tu región? (Si no lo sabes, puedes dejar el valor predeterminado de $1000 pesos)"
+        except ValueError:
+            reply = "Por favor, ingresa un número válido para el consumo."
+    
+    elif step == 4:
+        try:
+            price_per_kwh = float(message) if message.strip() else 1000
+            if price_per_kwh <= 0:
+                reply = "El costo por kWh debe ser mayor que 0. Inténtalo de nuevo."
+            else:
+                state["price_per_kwh"] = price_per_kwh
+                state["step"] = 5
+                recs = get_recommendations(state["consumption"], state["people"], state["price_per_kwh"])
                 reply_lines = [
                     f"Análisis realizado para {state['name']}:",
-                    f"Consumo mensual: {consumption} kWh con {state['people']} personas.",
+                    f"Consumo mensual: {state['consumption']} kWh con {state['people']} personas.",
                     f"Nivel de consumo: {recs['consumption_level'].capitalize()}",
                     "Recomendaciones generales:"
                 ]
@@ -183,27 +196,24 @@ def process_message(state: dict, message: str) -> Tuple[dict, str]:
                 reply_lines.append("¿Deseas proporcionar más detalles para obtener recomendaciones adicionales? (responde 'sí' o 'no')")
                 reply = "\n".join(reply_lines)
         except ValueError:
-            reply = "Por favor, ingresa un número válido para el consumo."
+            reply = "Por favor, ingresa un número válido para el costo por kWh."
     
-    elif step == 3:
-        # Procesar respuesta para detalles adicionales
+    elif step == 5:
         if message.strip().lower() in ["sí", "si"]:
-            state["step"] = 4
+            state["step"] = 6
             reply = "Por favor, proporciona más detalles sobre tu situación (ej. problemas específicos o áreas a mejorar):"
         else:
-            reply = "¡Gracias por utilizar nuestro servicio, que tengas un buen día!"
-            # Reiniciar el estado para comenzar una nueva conversación
-            state = {"step": 0}
+            reply = "¡Gracias por utilizar nuestro servicio! Si quieres empezar de nuevo, di 'hola'."
+            state = {"step": 0, "name": "Usuario"}
     
-    elif step == 4:
-        # Procesar los detalles adicionales y generar recomendaciones extra
+    elif step == 6:
         state["details"] = message.strip()
         extra_recs = get_additional_recommendations(state["details"])
         reply_lines = ["Basado en los detalles que proporcionaste, aquí tienes algunas recomendaciones adicionales:"]
         reply_lines.extend([f"- {rec}" for rec in extra_recs])
+        reply_lines.append("¡Gracias por utilizar nuestro servicio! Si quieres empezar de nuevo, di 'hola'.")
         reply = "\n".join(reply_lines)
-        # Reiniciar el estado tras finalizar la conversación
-        state = {"step": 0}
+        state = {"step": 0, "name": "Usuario"}
     
     else:
         reply = "Lo siento, ha ocurrido un error en la conversación."
@@ -218,10 +228,6 @@ app = FastAPI()
 
 @app.get("/", response_class=HTMLResponse)
 async def chat_page():
-    """
-    Devuelve la página principal con la interfaz del chatbot.
-    Se incluye HTML, CSS y JavaScript para simular un chat en tiempo real.
-    """
     html_content = """
     <!DOCTYPE html>
     <html>
@@ -249,22 +255,22 @@ async def chat_page():
         
         <script>
             // Estado inicial de la conversación
-            let state = { "step": 0 };
+            let state = { "step": 0, "name": "Usuario" };
             
             // Función para añadir mensajes al registro del chat
             function appendMessage(sender, message) {
                 const chatLog = document.getElementById("chat-log");
                 const messageDiv = document.createElement("div");
                 messageDiv.classList.add("message");
-                messageDiv.classList.add(sender);
+                messageDiv.classList.add(sender === "PowerBot" ? "bot" : "user");
                 messageDiv.textContent = sender.toUpperCase() + ": " + message;
                 chatLog.appendChild(messageDiv);
                 chatLog.scrollTop = chatLog.scrollHeight;
             }
             
-            // Mensaje inicial del bot
+            // Mensaje inicial del bot al cargar la página
             window.onload = function() {
-                appendMessage("PowerBot", "¡Hola! ¿Cuál es tu nombre?");
+                appendMessage("PowerBot", "Di 'hola' para comenzar la conversación.");
             };
             
             // Manejo del envío del formulario
@@ -272,7 +278,7 @@ async def chat_page():
                 e.preventDefault();
                 const userInput = document.getElementById("user-input");
                 const message = userInput.value;
-                appendMessage("user", message);
+                appendMessage(state.name, message); // Usar el nombre del estado
                 userInput.value = "";
                 
                 // Enviar mensaje y estado al endpoint /chat
@@ -285,11 +291,12 @@ async def chat_page():
                 })
                 .then(response => response.json())
                 .then(data => {
-                    state = data.state;
+                    state = data.state; // Actualizar el estado con el nombre
                     appendMessage("PowerBot", data.reply);
                 })
                 .catch(error => {
                     console.error("Error:", error);
+                    appendMessage("PowerBot", "Ocurrió un error, intenta de nuevo.");
                 });
             });
         </script>
@@ -300,10 +307,6 @@ async def chat_page():
 
 @app.post("/chat")
 async def chat_endpoint(payload: dict):
-    """
-    Endpoint que recibe el mensaje del usuario y el estado actual de la conversación.
-    Retorna la respuesta generada y el estado actualizado en formato JSON.
-    """
     state = payload.get("state", {"step": 0})
     message = payload.get("message", "")
     new_state, reply = process_message(state, message)
